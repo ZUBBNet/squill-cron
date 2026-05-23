@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       symbol:
-        description: 'Run for specific symbol only (leave empty for all)'
+        description: 'Symbol tertentu (kosong = semua)'
         required: false
         default: ''
 
@@ -26,17 +26,10 @@ jobs:
             RESPONSE=$(curl -s --max-time 10 \
               -X POST "${{ secrets.SQUILL_API_URL }}/api/write2earn" \
               -H "Content-Type: application/json" \
-              -d "{\"action\":\"get_active_symbols\",\"secret\":\"${{ secrets.SIGNAL_SECRET }}\"}")
+              -d '{"action":"get_active_symbols","secret":"${{ secrets.SIGNAL_SECRET }}"}')
 
-            SYMBOLS=$(echo "$RESPONSE" | python3 -c "
-import sys, json
-try:
-  data = json.load(sys.stdin)
-  syms = data.get('symbols', ['BTCUSDT','ETHUSDT','BNBUSDT'])
-  print(json.dumps(syms))
-except:
-  print('[\"BTCUSDT\",\"ETHUSDT\",\"BNBUSDT\"]')
-")
+            # Extract symbols array using jq, fallback to default if fails
+            SYMBOLS=$(echo "$RESPONSE" | jq -c '.symbols // ["BTCUSDT","ETHUSDT","BNBUSDT"]' 2>/dev/null || echo '["BTCUSDT","ETHUSDT","BNBUSDT"]')
           fi
 
           echo "symbols=$SYMBOLS" >> $GITHUB_OUTPUT
@@ -62,7 +55,7 @@ except:
             -X POST "${{ secrets.SQUILL_API_URL }}/api/write2earn" \
             -H "Content-Type: application/json" \
             --max-time 55 \
-            -d "{\"action\":\"run_signal_symbol\",\"secret\":\"${{ secrets.SIGNAL_SECRET }}\",\"symbol\":\"${{ matrix.symbol }}\"}")
+            -d '{"action":"run_signal_symbol","secret":"${{ secrets.SIGNAL_SECRET }}","symbol":"${{ matrix.symbol }}"}')
 
           HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
           BODY=$(echo "$RESPONSE" | head -n -1)
@@ -85,6 +78,6 @@ except:
     steps:
       - name: Write summary
         run: |
-          echo "### SQUILL Signal Cycle — $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "### SQUILL Signal Cycle - $(date -u)" >> $GITHUB_STEP_SUMMARY
           echo "- Symbols: ${{ needs.get-symbols.outputs.symbols }}" >> $GITHUB_STEP_SUMMARY
           echo "- Status: ${{ needs.run-signal.result }}" >> $GITHUB_STEP_SUMMARY

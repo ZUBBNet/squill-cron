@@ -2,7 +2,6 @@ name: SQUILL Signal Cycle
 
 on:
   schedule:
-    # Every hour at minute 0 (UTC)
     - cron: '*/30 * * * *'
   workflow_dispatch:
     inputs:
@@ -12,7 +11,6 @@ on:
         default: ''
 
 jobs:
-  # ── Step 1: Get watch list from API ─────────────────────────────────────────
   get-symbols:
     name: Get Watch List
     runs-on: ubuntu-latest
@@ -23,10 +21,8 @@ jobs:
         id: fetch
         run: |
           if [ -n "${{ github.event.inputs.symbol }}" ]; then
-            # Manual run with specific symbol
-            SYMBOLS=$(echo '["${{ github.event.inputs.symbol }}"]')
+            SYMBOLS='["${{ github.event.inputs.symbol }}"]'
           else
-            # Get symbols from all active wallets via API
             RESPONSE=$(curl -s --max-time 10 \
               -X POST "${{ secrets.SQUILL_API_URL }}/api/write2earn" \
               -H "Content-Type: application/json" \
@@ -35,18 +31,17 @@ jobs:
             SYMBOLS=$(echo "$RESPONSE" | python3 -c "
 import sys, json
 try:
-    data = json.load(sys.stdin)
-    syms = data.get('symbols', ['BTCUSDT','ETHUSDT','BNBUSDT'])
-    print(json.dumps(syms))
+  data = json.load(sys.stdin)
+  syms = data.get('symbols', ['BTCUSDT','ETHUSDT','BNBUSDT'])
+  print(json.dumps(syms))
 except:
-    print('[\"BTCUSDT\",\"ETHUSDT\",\"BNBUSDT\"]')
+  print('[\"BTCUSDT\",\"ETHUSDT\",\"BNBUSDT\"]')
 ")
           fi
 
           echo "symbols=$SYMBOLS" >> $GITHUB_OUTPUT
           echo "Will process: $SYMBOLS"
 
-  # ── Step 2: Process each symbol in parallel ──────────────────────────────────
   run-signal:
     name: Signal ${{ matrix.symbol }}
     needs: get-symbols
@@ -55,8 +50,8 @@ except:
     strategy:
       matrix:
         symbol: ${{ fromJson(needs.get-symbols.outputs.symbols) }}
-      fail-fast: false   # continue other symbols if one fails
-      max-parallel: 5    # process up to 5 symbols simultaneously
+      fail-fast: false
+      max-parallel: 5
 
     steps:
       - name: Run signal for ${{ matrix.symbol }}
@@ -82,7 +77,6 @@ except:
 
           echo "${{ matrix.symbol }} done"
 
-  # ── Step 3: Summary ─────────────────────────────────────────────────────────
   summary:
     name: Summary
     needs: [get-symbols, run-signal]

@@ -1,0 +1,51 @@
+name: SQUILL Position Monitor
+
+on:
+  schedule:
+    # Cek setiap 15 menit — lebih sering dari signal cycle (30 menit)
+    # sehingga TP/SL ter-resolve max 15 menit setelah terjadi, bukan 30 menit.
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+# Monitor berjalan independen dari signal cycle — grup berbeda,
+# tidak saling blokir tapi masing-masing tetap serialize internal.
+concurrency:
+  group: squill-position-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    name: Resolve Open Positions
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Check & resolve open positions
+        run: |
+          echo "Position monitor run at $(date -u)"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "${{ secrets.SQUILL_API_URL }}/api/write2earn" \
+            -H "Content-Type: application/json" \
+            --max-time 50 \
+            -d '{"action":"resolve_open_positions","secret":"${{ secrets.SIGNAL_SECRET }}"}')
+
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP: $HTTP_STATUS"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Monitor failed (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+
+          RESOLVED=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('resolved', 0))" 2>/dev/null || echo "0")
+          echo "Positions resolved: $RESOLVED"
+
+      - name: Write summary
+        if: always()
+        run: |
+          echo "### SQUILL Position Monitor — $(date -u '+%Y-%m-%d %H:%M UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "Checks open positions for all active wallets and resolves TP/SL/expiry." >> $GITHUB_STEP_SUMMARY
